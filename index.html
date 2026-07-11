@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codenames Clue Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span>CODENAMES ASSISTANT</div>
+      <div class="steps">
+        <div class="step active" id="step-board"><span class="num">1</span>Board</div>
+        <div class="step" id="step-clues"><span class="num">2</span>Clues</div>
+      </div>
+    </div>
+
+    <div class="card screen active" id="screen-board">
+      <div class="meta-label">Board setup</div>
+      <h1>Build your board</h1>
+      <p class="subtext">Type all 25 words, then tap a dot under each to set its color.</p>
+
+      <div class="team-toggle">
+        <button class="team-pill blue selected" data-team="blue">YOUR TEAM: BLUE</button>
+        <button class="team-pill red" data-team="red">YOUR TEAM: RED</button>
+      </div>
+
+      <div class="board-grid" id="boardGrid"></div>
+
+      <div class="hint-row">
+        <span class="swatch-key"><span class="dot blue"></span>Blue</span>
+        <span class="swatch-key"><span class="dot red"></span>Red</span>
+        <span class="swatch-key"><span class="dot neutral"></span>Neutral</span>
+        <span class="swatch-key"><span class="dot assassin"></span>Assassin</span>
+      </div>
+
+      <div class="status-line" id="boardStatus"></div>
+
+      <div class="actions">
+        <button class="btn-secondary" id="clearBoardBtn">Clear board</button>
+        <button class="btn-primary" id="getCluesBtn" disabled>Get clues</button>
+      </div>
+    </div>
+
+    <div class="card screen" id="screen-clues">
+      <div class="meta-label">Clue suggestions</div>
+      <h1 id="clueHeading">Ranked clues</h1>
+      <p class="subtext">Free, offline candidates from your word bank — ranked by coverage vs. risk. No clue is a legal-check guarantee; use judgment.</p>
+      <div class="count-badge" id="clueCountBadge"></div>
+
+      <div class="clue-list" id="clueList"></div>
+
+      <div class="actions">
+        <button class="btn-secondary" id="backToBoardBtn">Back to board</button>
+        <button class="btn-primary" id="regenerateBtn">Regenerate</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

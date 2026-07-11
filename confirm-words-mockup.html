@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Confirm Detected Words — Codenames Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0B1223;
+    --surface: #131C30;
+    --surface-hover: #182238;
+    --border: rgba(255,255,255,0.06);
+    --border-accent: rgba(120,160,255,0.15);
+    --accent: #5B8CFF;
+    --accent-bright: #4D82FF;
+    --gold: #E3C567;
+    --text-primary: #FFFFFF;
+    --text-secondary: #9AA7C3;
+    --text-muted: #5C6785;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 24px;
+  }
+  .app {
+    width: 100%;
+    max-width: 720px;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 40px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+  }
+  .brand .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(91,140,255,0.7);
+  }
+  .steps {
+    display: flex;
+    gap: 24px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .steps .step { display: flex; align-items: center; gap: 6px; }
+  .steps .step.active { color: var(--accent); }
+  .steps .step .num {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--text-muted);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px;
+  }
+  .steps .step.active .num { border-color: var(--accent); color: var(--accent); }
+  .steps .step.done .num { border-color: var(--accent); background: var(--accent); color: #06101F; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px;
+  }
+
+  .meta-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-size: 30px;
+    font-weight: 700;
+    margin: 0 0 10px;
+    letter-spacing: -0.01em;
+  }
+  .subtext {
+    font-size: 15px;
+    color: var(--text-secondary);
+    margin: 0 0 8px;
+    line-height: 1.5;
+  }
+  .count-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: rgba(91,140,255,0.08);
+    border: 1px solid var(--border-accent);
+    padding: 5px 12px;
+    border-radius: 100px;
+    margin-top: 18px;
+    margin-bottom: 28px;
+  }
+
+  .word-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+  .word-row {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 10px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+    position: relative;
+  }
+  .word-row:hover {
+    border-color: var(--border-accent);
+    background: rgba(255,255,255,0.035);
+    transform: translateY(-1px);
+  }
+  .word-row.editing {
+    border-color: var(--accent);
+    background: rgba(91,140,255,0.06);
+  }
+  .word-row.edited::after {
+    content: '';
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--gold);
+  }
+  .word-row input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: 0.02em;
+  }
+
+  .hint-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 28px;
+  }
+  .hint-row .swatch {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--gold);
+  }
+
+  .actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    border-top: 1px solid var(--border);
+    padding-top: 24px;
+  }
+  button {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 14px;
+    padding: 13px 22px;
+    cursor: pointer;
+    transition: all 180ms ease;
+    border: 1px solid transparent;
+  }
+  .btn-secondary {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-secondary);
+  }
+  .btn-secondary:hover {
+    border-color: var(--border-accent);
+    color: var(--text-primary);
+  }
+  .btn-primary {
+    background: var(--accent-bright);
+    color: #06101F;
+  }
+  .btn-primary:hover {
+    background: #6b98ff;
+    transform: translateY(-1px);
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span>CODENAMES ASSISTANT</div>
+      <div class="steps">
+        <div class="step done"><span class="num">✓</span>Capture</div>
+        <div class="step active"><span class="num">2</span>Confirm words</div>
+        <div class="step"><span class="num">3</span>Colors</div>
+        <div class="step"><span class="num">4</span>Clues</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="meta-label">Board capture</div>
+      <h1>Confirm detected words</h1>
+      <p class="subtext">We read 25 words from your photo. Tap any word to correct it before continuing.</p>
+      <div class="count-badge"><span>●</span> 25 words detected</div>
+
+      <div class="word-grid" id="wordGrid"></div>
+
+      <div class="hint-row"><span class="swatch"></span> gold dot marks a word you've edited</div>
+
+      <div class="actions">
+        <button class="btn-secondary" onclick="alert('Retake photo — back to capture step')">Retake photo</button>
+        <button class="btn-primary" onclick="alert('Words confirmed — continuing to color tagging')">Confirm &amp; continue</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const words = [
+      "TIME","CAMERA","SHORTS","JUMPER","LASER",
+      "LIGHT","TELESCOPE","ROSE","ROPE","SOAP",
+      "BOOK","CHIP","GERMANY","OVEN","CLASSROOM",
+      "BULB","FISH","KING ARTHUR","ENGLAND","POST",
+      "SPRING","BOX","PARROT","STAMP","LINE"
+    ];
+
+    const grid = document.getElementById('wordGrid');
+
+    words.forEach((word, i) => {
+      const row = document.createElement('div');
+      row.className = 'word-row';
+      row.dataset.value = word;
+      row.textContent = word;
+      row.addEventListener('click', () => startEdit(row));
+      grid.appendChild(row);
+    });
+
+    function startEdit(row) {
+      if (row.querySelector('input')) return;
+      const current = row.textContent;
+      row.classList.add('editing');
+      row.textContent = '';
+      const input = document.createElement('input');
+      input.value = current;
+      row.appendChild(input);
+      input.focus();
+      input.select();
+
+      function commit() {
+        const newVal = input.value.trim().toUpperCase() || current;
+        row.classList.remove('editing');
+        if (newVal !== row.dataset.value.toUpperCase()) {
+          row.classList.add('edited');
+        }
+        row.dataset.value = newVal;
+        row.textContent = newVal;
+      }
+
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') input.blur();
+      });
+    }
+  </script>
+</body>
+</html>
