@@ -4,7 +4,7 @@ const COLORS = ['blue', 'red', 'neutral', 'assassin'];
 const N_CELLS = 25;
 
 const state = {
-  cells: Array.from({ length: N_CELLS }, () => ({ word: '', color: null })),
+  cells: Array.from({ length: N_CELLS }, () => ({ word: '', color: null, revealed: false })),
   yourTeam: 'blue',
 };
 
@@ -20,6 +20,9 @@ const regenerateBtn = document.getElementById('regenerateBtn');
 const clueList = document.getElementById('clueList');
 const clueHeading = document.getElementById('clueHeading');
 const clueCountBadge = document.getElementById('clueCountBadge');
+const boardStatusList = document.getElementById('boardStatusList');
+const remainingTally = document.getElementById('remainingTally');
+const endgameBanner = document.getElementById('endgameBanner');
 const stepBoard = document.getElementById('step-board');
 const stepClues = document.getElementById('step-clues');
 const screenBoard = document.getElementById('screen-board');
@@ -56,10 +59,20 @@ function buildBoardGrid() {
       swatches.appendChild(btn);
     });
 
+    const revealBtn = document.createElement('button');
+    revealBtn.type = 'button';
+    revealBtn.className = 'reveal-toggle';
+    revealBtn.addEventListener('click', () => {
+      state.cells[i].revealed = !state.cells[i].revealed;
+      renderCellRevealed(cellEl, state.cells[i].revealed);
+    });
+
     cellEl.appendChild(input);
     cellEl.appendChild(swatches);
+    cellEl.appendChild(revealBtn);
     boardGrid.appendChild(cellEl);
     renderCellColor(cellEl, cell.color);
+    renderCellRevealed(cellEl, cell.revealed);
   });
 }
 
@@ -69,6 +82,12 @@ function renderCellColor(cellEl, color) {
   cellEl.querySelectorAll('.swatch').forEach((btn) => {
     btn.classList.toggle('active', btn.classList.contains(color));
   });
+}
+
+function renderCellRevealed(cellEl, revealed) {
+  cellEl.classList.toggle('revealed', revealed);
+  const revealBtn = cellEl.querySelector('.reveal-toggle');
+  revealBtn.textContent = revealed ? 'Guessed ✕ undo' : 'Mark guessed';
 }
 
 function updateGetCluesState() {
@@ -89,7 +108,7 @@ document.querySelectorAll('.team-pill').forEach((btn) => {
 });
 
 clearBoardBtn.addEventListener('click', () => {
-  state.cells = Array.from({ length: N_CELLS }, () => ({ word: '', color: null }));
+  state.cells = Array.from({ length: N_CELLS }, () => ({ word: '', color: null, revealed: false }));
   buildBoardGrid();
   updateGetCluesState();
 });
@@ -136,6 +155,44 @@ async function embedBoardWords(extractor) {
 
 function riskColorDot(color) {
   return color || 'neutral';
+}
+
+function tally() {
+  const counts = { blue: 0, red: 0, neutral: 0, assassin: 0 };
+  for (const c of state.cells) {
+    if (!c.revealed && c.color) counts[c.color]++;
+  }
+  return counts;
+}
+
+function renderRemainingTally() {
+  const counts = tally();
+  remainingTally.innerHTML = ['blue', 'red', 'neutral', 'assassin']
+    .map((c) => `<span class="tally-item"><span class="dot ${c}"></span>${counts[c]} ${c}</span>`)
+    .join('');
+}
+
+let statusUpdatePending = false;
+
+function renderBoardStatus() {
+  boardStatusList.innerHTML = '';
+  state.cells.forEach((cell, i) => {
+    if (!cell.word.trim() || !cell.color) return;
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = `board-chip ${cell.color}${cell.revealed ? ' revealed' : ''}`;
+    chip.innerHTML = `<span class="dot"></span><span class="word">${cell.word}</span>`;
+    chip.addEventListener('click', async () => {
+      if (statusUpdatePending) return;
+      statusUpdatePending = true;
+      state.cells[i].revealed = !state.cells[i].revealed;
+      const boardCellEl = boardGrid.querySelector(`.board-cell[data-index="${i}"]`);
+      if (boardCellEl) renderCellRevealed(boardCellEl, state.cells[i].revealed);
+      await getClues();
+      statusUpdatePending = false;
+    });
+    boardStatusList.appendChild(chip);
+  });
 }
 
 function renderClues(results) {
@@ -188,17 +245,44 @@ function renderClues(results) {
   }
 }
 
+function renderEndgame(message, danger) {
+  endgameBanner.textContent = message;
+  endgameBanner.classList.toggle('danger', !!danger);
+  endgameBanner.style.display = 'block';
+}
+
 async function getClues() {
   getCluesBtn.disabled = true;
   boardStatus.classList.remove('error');
   try {
+    renderBoardStatus();
+    renderRemainingTally();
+
+    const counts = tally();
+    endgameBanner.style.display = 'none';
+    clueCountBadge.style.display = '';
+    if (counts.assassin === 0 && state.cells.some((c) => c.color === 'assassin')) {
+      renderEndgame('Assassin revealed — game over.', true);
+      clueCountBadge.style.display = 'none';
+      clueList.innerHTML = '';
+      showScreen('clues');
+      return;
+    }
+    if (counts[state.yourTeam] === 0) {
+      renderEndgame(`All of ${state.yourTeam.toUpperCase()}'s words found — your team wins!`);
+      clueCountBadge.style.display = 'none';
+      clueList.innerHTML = '';
+      showScreen('clues');
+      return;
+    }
+
     boardStatus.textContent = 'Loading model (first run only)…';
     const extractor = await loadExtractor();
     boardStatus.textContent = 'Embedding board words…';
     const [wordVectors, boardEmbeddings] = await Promise.all([loadWordVectors(), embedBoardWords(extractor)]);
     boardStatus.textContent = 'Ranking candidates…';
     const results = rankClues(
-      { board: state.cells.map((c) => ({ word: c.word, color: c.color })), yourTeam: state.yourTeam },
+      { board: state.cells.map((c) => ({ word: c.word, color: c.color, revealed: c.revealed })), yourTeam: state.yourTeam },
       wordVectors,
       boardEmbeddings,
       { maxCount: 4, topN: 15 }

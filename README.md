@@ -12,6 +12,7 @@ Coming up with a good Codenames clue means balancing two things at once: how man
 - **Precomputed candidate vocabulary** — the ~1,200-word clue bank is embedded once offline by a Node script and shipped as a static JSON file, so the browser only ever embeds the 25 live board words, not the whole vocabulary.
 - **Coverage-vs-risk scoring** — for each candidate and each possible clue count (1–4), the ranker averages similarity to the best-matching own-team words and subtracts the weighted max similarity to any opponent/neutral/assassin word (assassin weighted highest), then keeps each candidate's best-scoring count.
 - **Deterministic legality filter** — any candidate that exactly matches, contains, or is contained in a board word is excluded outright, enforcing Codenames' clue-legality rule without relying on the model to remember it.
+- **Turn tracking** — tap a word on the clue screen (or its reveal toggle on the board) once it's guessed; revealed cards drop out of coverage/risk scoring and clues recompute automatically. A remaining-word tally per color and an endgame banner (assassin hit / team fully cleared) track game state without a page reload.
 
 ## Architecture & Design Decisions
 
@@ -83,4 +84,3 @@ The app is fully static (`index.html`, `app.js`, `styles.css`, `data/word-vector
 
 - Claude-based Stage 2 refinement pass: legality double-check + plain-English risk explanations for the top candidates.
 - Photo/screenshot board capture via Claude vision, replacing manual entry as the default input path.
-- Turn tracking: mark cards revealed and auto-recompute remaining-word clue suggestions.

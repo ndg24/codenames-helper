@@ -163,6 +163,8 @@ h1 {
 .board-cell.color-red { border-color: rgba(227,103,103,0.5); background: rgba(227,103,103,0.06); }
 .board-cell.color-neutral { border-color: rgba(201,184,150,0.5); background: rgba(201,184,150,0.06); }
 .board-cell.color-assassin { border-color: rgba(227,197,103,0.55); background: rgba(0,0,0,0.35); }
+.board-cell.revealed { opacity: 0.4; filter: grayscale(0.5); }
+.board-cell.revealed input { text-decoration: line-through; }
 
 .board-cell input {
   width: 100%;
@@ -204,6 +206,26 @@ h1 {
 .swatch.red.active { color: var(--red-color); }
 .swatch.neutral.active { color: var(--neutral-color); }
 .swatch.assassin.active { color: var(--assassin-color); }
+
+.reveal-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 4px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.reveal-toggle:hover { color: var(--text-secondary); border-color: var(--border-accent); }
+.board-cell.revealed .reveal-toggle { color: var(--accent); border-color: var(--border-accent); background: rgba(91,140,255,0.08); }
 
 .status-line {
   font-size: 13px;
@@ -266,6 +288,68 @@ button {
 .btn-primary:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Board status (clue screen) */
+.board-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.board-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 5px 12px 5px 8px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.board-chip:hover { border-color: var(--border-accent); color: var(--text-primary); }
+.board-chip .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.board-chip.blue .dot { background: var(--blue-color); }
+.board-chip.red .dot { background: var(--red-color); }
+.board-chip.neutral .dot { background: var(--neutral-color); }
+.board-chip.assassin .dot { background: var(--assassin-fill); border: 1px solid var(--assassin-color); }
+.board-chip.revealed { opacity: 0.4; }
+.board-chip.revealed .word { text-decoration: line-through; }
+
+.remaining-tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+.remaining-tally .tally-item { display: flex; align-items: center; gap: 5px; }
+.remaining-tally .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.remaining-tally .dot.blue { background: var(--blue-color); }
+.remaining-tally .dot.red { background: var(--red-color); }
+.remaining-tally .dot.neutral { background: var(--neutral-color); }
+.remaining-tally .dot.assassin { background: var(--assassin-fill); border: 1px solid var(--assassin-color); }
+
+.endgame-banner {
+  border: 1px solid var(--border-accent);
+  background: rgba(91,140,255,0.06);
+  border-radius: 14px;
+  padding: 16px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 24px;
+}
+.endgame-banner.danger {
+  border-color: rgba(227,197,103,0.4);
+  background: rgba(227,197,103,0.06);
+  color: var(--gold);
 }
 
 /* Clue results list */

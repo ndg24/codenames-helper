@@ -77,6 +77,44 @@ test('rankClues picks the count with the best score, not always the max', () => 
   assert.deepEqual(result.targetWords, ['close']);
 });
 
+test('rankClues excludes revealed own-team words from coverage targets', () => {
+  const board = [
+    { word: 'close', color: 'blue', revealed: true },
+    { word: 'far', color: 'blue' },
+  ];
+  const boardEmbeddings = [
+    { word: 'close', norm: 'close', vector: [1, 0, 0] },
+    { word: 'far', norm: 'far', vector: unit([0.2, 1, 0]) },
+  ];
+  const wordVectors = [{ word: 'candidate', norm: 'candidate', vector: [1, 0, 0] }];
+
+  const [result] = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 2 });
+  assert.deepEqual(result.targetWords, ['far']);
+});
+
+test('rankClues ignores revealed danger words when computing risk', () => {
+  const board = [
+    { word: 'alpha', color: 'blue' },
+    { word: 'bomb', color: 'assassin', revealed: true },
+  ];
+  const boardEmbeddings = [
+    { word: 'alpha', norm: 'alpha', vector: [1, 0, 0] },
+    { word: 'bomb', norm: 'bomb', vector: unit([1, 1, 0]) },
+  ];
+  const wordVectors = [{ word: 'candidate', norm: 'candidate', vector: unit([1, 1, 0]) }];
+
+  const [result] = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 1 });
+  assert.equal(result.riskWord, null);
+});
+
+test('rankClues returns no candidates once every own-team word is revealed', () => {
+  const board = [{ word: 'alpha', color: 'blue', revealed: true }];
+  const boardEmbeddings = [{ word: 'alpha', norm: 'alpha', vector: [1, 0, 0] }];
+  const wordVectors = [{ word: 'candidate', norm: 'candidate', vector: [1, 0, 0] }];
+  const results = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 1 });
+  assert.deepEqual(results, []);
+});
+
 test('rankClues sorts by score descending and respects topN', () => {
   const board = [{ word: 'alpha', color: 'blue' }];
   const boardEmbeddings = [{ word: 'alpha', norm: 'alpha', vector: [1, 0, 0] }];
