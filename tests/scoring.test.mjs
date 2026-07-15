@@ -34,7 +34,7 @@ test('rankClues excludes a candidate that is a substring/superstring of a board 
     { word: 'snowmanlike', norm: 'snowmanlike', vector: [0.9, 0, 0.1] }, // superstring
     { word: 'winter', norm: 'winter', vector: [0.5, 0.5, 0] },  // unrelated string, legal
   ];
-  const results = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 1 });
+  const results = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { minCount: 1, maxCount: 1 });
   assert.deepEqual(results.map((r) => r.clue), ['winter']);
 });
 
@@ -49,7 +49,7 @@ test('rankClues weighs assassin proximity as riskier than opponent, and opponent
       { word: alpha.word, norm: 'alpha', vector: alpha.vector },
       { word: danger.word, norm: 'danger', vector: danger.vector },
     ];
-    const [result] = rankClues({ board, yourTeam: 'blue' }, candidate, boardEmbeddings, { maxCount: 1 });
+    const [result] = rankClues({ board, yourTeam: 'blue' }, candidate, boardEmbeddings, { minCount: 1, maxCount: 1 });
     return result.score;
   };
 
@@ -72,7 +72,7 @@ test('rankClues picks the count with the best score, not always the max', () => 
   ];
   const wordVectors = [{ word: 'candidate', norm: 'candidate', vector: [1, 0, 0] }];
 
-  const [result] = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 2 });
+  const [result] = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { minCount: 1, maxCount: 2 });
   assert.equal(result.count, 1);
   assert.deepEqual(result.targetWords, ['close']);
 });
@@ -88,7 +88,7 @@ test('rankClues excludes revealed own-team words from coverage targets', () => {
   ];
   const wordVectors = [{ word: 'candidate', norm: 'candidate', vector: [1, 0, 0] }];
 
-  const [result] = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 2 });
+  const [result] = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { minCount: 1, maxCount: 2 });
   assert.deepEqual(result.targetWords, ['far']);
 });
 
@@ -103,7 +103,7 @@ test('rankClues ignores revealed danger words when computing risk', () => {
   ];
   const wordVectors = [{ word: 'candidate', norm: 'candidate', vector: unit([1, 1, 0]) }];
 
-  const [result] = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 1 });
+  const [result] = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { minCount: 1, maxCount: 1 });
   assert.equal(result.riskWord, null);
 });
 
@@ -115,6 +115,51 @@ test('rankClues returns no candidates once every own-team word is revealed', () 
   assert.deepEqual(results, []);
 });
 
+test('rankClues prefers a higher count when several own words are all closely related', () => {
+  const board = [
+    { word: 'one', color: 'blue' },
+    { word: 'two', color: 'blue' },
+    { word: 'three', color: 'blue' },
+  ];
+  const boardEmbeddings = [
+    { word: 'one', norm: 'one', vector: unit([1, 0.1, 0]) },
+    { word: 'two', norm: 'two', vector: unit([1, 0.2, 0]) },
+    { word: 'three', norm: 'three', vector: unit([1, 0.3, 0]) },
+  ];
+  const wordVectors = [{ word: 'candidate', norm: 'candidate', vector: [1, 0, 0] }];
+
+  const [result] = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 4 });
+  assert.equal(result.count, 3);
+  assert.deepEqual(result.targetWords, ['one', 'two', 'three']);
+});
+
+test('rankClues drops a candidate rather than pad a weak word into its minimum count', () => {
+  const board = [
+    { word: 'close', color: 'blue' },
+    { word: 'far', color: 'blue' },
+  ];
+  const boardEmbeddings = [
+    { word: 'close', norm: 'close', vector: [1, 0, 0] },
+    { word: 'far', norm: 'far', vector: unit([0.1, 1, 0]) }, // sim ~0.1, below MIN_TARGET_SIM
+  ];
+  const wordVectors = [{ word: 'candidate', norm: 'candidate', vector: [1, 0, 0] }];
+
+  // Default minCount is 2, but "far" is too weak to legitimately fill the second slot —
+  // the candidate should be dropped entirely, not offered as a (banned) single-word clue.
+  const results = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 2 });
+  assert.deepEqual(results, []);
+});
+
+test('rankClues never returns a count below minCount (default 2)', () => {
+  const board = [{ word: 'alpha', color: 'blue' }];
+  const boardEmbeddings = [{ word: 'alpha', norm: 'alpha', vector: [1, 0, 0] }];
+  const wordVectors = [{ word: 'candidate', norm: 'candidate', vector: [1, 0, 0] }];
+
+  // Only one own-team word remains, so no candidate can reach the minimum count of 2.
+  const results = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 4 });
+  assert.deepEqual(results, []);
+});
+
 test('rankClues sorts by score descending and respects topN', () => {
   const board = [{ word: 'alpha', color: 'blue' }];
   const boardEmbeddings = [{ word: 'alpha', norm: 'alpha', vector: [1, 0, 0] }];
@@ -123,7 +168,7 @@ test('rankClues sorts by score descending and respects topN', () => {
     { word: 'mid', norm: 'mid', vector: unit([1, 0.5, 0]) },
     { word: 'worst', norm: 'worst', vector: unit([1, 1, 1]) },
   ];
-  const results = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { maxCount: 1, topN: 2 });
+  const results = rankClues({ board, yourTeam: 'blue' }, wordVectors, boardEmbeddings, { minCount: 1, maxCount: 1, topN: 2 });
   assert.equal(results.length, 2);
   assert.equal(results[0].clue, 'best');
   assert.equal(results[1].clue, 'mid');

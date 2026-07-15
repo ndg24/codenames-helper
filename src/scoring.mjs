@@ -20,7 +20,9 @@ export function cosineSim(a, b) {
 
 // A candidate clue can't be a board word, or share a substring root with one
 // (e.g. "SNOWMAN" can't clue "SNOW"). Hard filter, not left to model judgment.
-function isLegal(candidateNorm, boardNorms) {
+// Exported so the Gemini refinement pass (server/refineClues.mjs) can re-apply
+// the same deterministic check on model output rather than trusting it.
+export function isLegal(candidateNorm, boardNorms) {
   if (!candidateNorm) return false;
   for (const boardNorm of boardNorms) {
     if (!boardNorm) continue;
@@ -36,11 +38,21 @@ const DANGER_WEIGHTS = {
   neutral: 0.5,
 };
 
+// Coverage is an average of sorted-descending similarities, so it is mathematically
+// non-increasing as count grows — without a counterweight, count=1 always wins since
+// the danger penalty doesn't change with count either. MULTI_WORD_BONUS rewards the
+// compression a multi-word clue gives (fewer turns to clear the board), while
+// MIN_TARGET_SIM stops a barely-related word from being dragged in just to rack up count.
+const MULTI_WORD_BONUS = 0.05;
+const MIN_TARGET_SIM = 0.2;
+const DEFAULT_MIN_COUNT = 2;
+
 /**
  * @param {{board: {word:string, color:'blue'|'red'|'neutral'|'assassin', revealed?: boolean}[], yourTeam: 'blue'|'red'}} game
  * @param {{word:string, norm:string, vector:number[]}[]} wordVectors  candidate clue vocabulary (wordbank)
  * @param {{word:string, norm:string, vector:number[]}[]} boardEmbeddings  live embeddings, same order as game.board
- * @param {{maxCount?: number, topN?: number}} opts
+ * @param {{minCount?: number, maxCount?: number, topN?: number}} opts  minCount defaults to 2 — no single-word clues.
+ *   If fewer than minCount own-team words remain, no candidate can qualify and results will be empty.
  */
 export function rankClues(game, wordVectors, boardEmbeddings, opts = {}) {
   const { board, yourTeam } = game;
@@ -65,6 +77,7 @@ export function rankClues(game, wordVectors, boardEmbeddings, opts = {}) {
   if (ownRows.length === 0) return [];
 
   const maxCount = Math.max(1, Math.min(opts.maxCount ?? 4, ownRows.length || 1));
+  const minCount = Math.max(1, opts.minCount ?? DEFAULT_MIN_COUNT);
   const topN = opts.topN ?? 15;
 
   const results = [];
@@ -88,10 +101,14 @@ export function rankClues(game, wordVectors, boardEmbeddings, opts = {}) {
     );
 
     let best = null;
-    for (let count = 1; count <= maxCount; count++) {
+    for (let count = minCount; count <= maxCount; count++) {
       const topOwn = ownSims.slice(0, count);
+      // The floor only gates words #2+: the single strongest own word is always a legal
+      // target, but padding on a 2nd/3rd/4th word that's too weak drops the candidate
+      // outright (never falls back to a smaller count below minCount).
+      if (count > 1 && topOwn[topOwn.length - 1].sim < MIN_TARGET_SIM) break;
       const coverage = topOwn.reduce((sum, r) => sum + r.sim, 0) / topOwn.length;
-      const score = coverage - Math.max(worstDanger.weighted, 0);
+      const score = coverage - Math.max(worstDanger.weighted, 0) + (count - 1) * MULTI_WORD_BONUS;
       const entry = {
         clue: candidate.word,
         count,

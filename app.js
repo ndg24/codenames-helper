@@ -17,6 +17,8 @@ const getCluesBtn = document.getElementById('getCluesBtn');
 const clearBoardBtn = document.getElementById('clearBoardBtn');
 const backToBoardBtn = document.getElementById('backToBoardBtn');
 const regenerateBtn = document.getElementById('regenerateBtn');
+const refineBtn = document.getElementById('refineBtn');
+const refineStatus = document.getElementById('refineStatus');
 const clueList = document.getElementById('clueList');
 const clueHeading = document.getElementById('clueHeading');
 const clueCountBadge = document.getElementById('clueCountBadge');
@@ -27,6 +29,20 @@ const stepBoard = document.getElementById('step-board');
 const stepClues = document.getElementById('step-clues');
 const screenBoard = document.getElementById('screen-board');
 const screenClues = document.getElementById('screen-clues');
+
+let lastRawResults = [];
+
+const REFINE_ERROR_MESSAGES = {
+  not_configured: 'AI clue generation isn’t set up (no GEMINI_API_KEY on the server) — showing offline candidates.',
+  not_enough_words: 'Your team needs at least 2 words left for Gemini to build a clue — showing offline candidates.',
+  invalid_board: 'Board data was invalid — showing offline candidates.',
+  request_failed: 'Gemini request failed — showing offline candidates.',
+  empty_response: 'Gemini returned an empty response — showing offline candidates.',
+  invalid_json: 'Gemini returned an unreadable response — showing offline candidates.',
+  invalid_shape: 'Gemini returned an unexpected response — showing offline candidates.',
+  no_valid_picks: 'None of Gemini’s picks passed the legality check — showing offline candidates.',
+  payload_too_large: 'Request was too large — showing offline candidates.',
+};
 
 function buildBoardGrid() {
   boardGrid.innerHTML = '';
@@ -195,9 +211,12 @@ function renderBoardStatus() {
   });
 }
 
-function renderClues(results) {
+function renderClues(results, opts = {}) {
+  const source = opts.source || 'stage1';
   clueHeading.textContent = `Ranked clues for ${state.yourTeam.toUpperCase()}`;
-  clueCountBadge.innerHTML = `<span>●</span> ${results.length} candidates`;
+  clueCountBadge.innerHTML = source === 'gemini'
+    ? `<span>●</span> ${results.length} AI-generated picks`
+    : `<span>●</span> ${results.length} candidates`;
   clueList.innerHTML = '';
   if (results.length === 0) {
     clueList.innerHTML = '<p class="subtext">No legal candidates found in the word bank for this board.</p>';
@@ -205,7 +224,7 @@ function renderClues(results) {
   }
   for (const r of results) {
     const row = document.createElement('div');
-    row.className = 'clue-row';
+    row.className = source === 'gemini' ? 'clue-row refined' : 'clue-row';
 
     const head = document.createElement('div');
     head.className = 'clue-head';
@@ -227,20 +246,38 @@ function renderClues(results) {
       targets.appendChild(tag);
     });
 
-    const risk = document.createElement('div');
-    risk.className = 'risk-note';
-    if (r.riskWord) {
-      const dot = document.createElement('span');
-      dot.className = `dot ${riskColorDot(r.riskColor)}`;
-      risk.appendChild(dot);
-      risk.appendChild(document.createTextNode(`closest risk: ${r.riskWord} (${r.riskColor}, sim ${r.riskSim.toFixed(2)})`));
-    } else {
-      risk.textContent = 'no meaningful risk detected';
-    }
-
     row.appendChild(head);
     row.appendChild(targets);
-    row.appendChild(risk);
+
+    // Stage 1 candidates carry an embedding-based risk readout; Gemini's own picks
+    // have no such vector to compare, so they only show its plain-English risk note below.
+    if (source !== 'gemini') {
+      const risk = document.createElement('div');
+      risk.className = 'risk-note';
+      if (r.riskWord) {
+        const dot = document.createElement('span');
+        dot.className = `dot ${riskColorDot(r.riskColor)}`;
+        risk.appendChild(dot);
+        risk.appendChild(document.createTextNode(`closest risk: ${r.riskWord} (${r.riskColor}, sim ${r.riskSim.toFixed(2)})`));
+      } else {
+        risk.textContent = 'no meaningful risk detected';
+      }
+      row.appendChild(risk);
+    }
+
+    if (r.reasoning) {
+      const reasoning = document.createElement('div');
+      reasoning.className = 'ai-reasoning';
+      reasoning.textContent = r.reasoning;
+      row.appendChild(reasoning);
+    }
+    if (r.risk) {
+      const aiRisk = document.createElement('div');
+      aiRisk.className = 'ai-risk';
+      aiRisk.textContent = `Gemini: ${r.risk}`;
+      row.appendChild(aiRisk);
+    }
+
     clueList.appendChild(row);
   }
 }
@@ -254,6 +291,10 @@ function renderEndgame(message, danger) {
 async function getClues() {
   getCluesBtn.disabled = true;
   boardStatus.classList.remove('error');
+  refineStatus.textContent = '';
+  refineStatus.classList.remove('error');
+  refineBtn.disabled = true;
+  lastRawResults = [];
   try {
     renderBoardStatus();
     renderRemainingTally();
@@ -285,9 +326,11 @@ async function getClues() {
       { board: state.cells.map((c) => ({ word: c.word, color: c.color, revealed: c.revealed })), yourTeam: state.yourTeam },
       wordVectors,
       boardEmbeddings,
-      { maxCount: 4, topN: 15 }
+      { minCount: 2, maxCount: 4, topN: 15 }
     );
     boardStatus.textContent = '';
+    lastRawResults = results;
+    refineBtn.disabled = counts[state.yourTeam] < 2;
     renderClues(results);
     showScreen('clues');
   } catch (err) {
@@ -299,8 +342,42 @@ async function getClues() {
   }
 }
 
+async function refineWithGemini() {
+  if (tally()[state.yourTeam] < 2) return;
+  refineBtn.disabled = true;
+  refineStatus.classList.remove('error');
+  refineStatus.textContent = 'Asking Gemini for clue ideas…';
+  try {
+    const res = await fetch('/api/refine-clues', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        board: state.cells.map((c) => ({ word: c.word, color: c.color, revealed: c.revealed })),
+        yourTeam: state.yourTeam,
+      }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      renderClues(data.refined, { source: 'gemini' });
+      refineStatus.textContent = `Gemini's own picks — ${data.refined.length} idea${data.refined.length === 1 ? '' : 's'}. Regenerate to return to the full offline list.`;
+    } else {
+      renderClues(lastRawResults);
+      refineStatus.textContent = REFINE_ERROR_MESSAGES[data.reason] || 'AI clue generation unavailable — showing offline candidates.';
+      refineStatus.classList.add('error');
+    }
+  } catch (err) {
+    console.error(err);
+    renderClues(lastRawResults);
+    refineStatus.textContent = 'AI clue generation unavailable — showing offline candidates.';
+    refineStatus.classList.add('error');
+  } finally {
+    refineBtn.disabled = false;
+  }
+}
+
 getCluesBtn.addEventListener('click', getClues);
 regenerateBtn.addEventListener('click', getClues);
+refineBtn.addEventListener('click', refineWithGemini);
 
 buildBoardGrid();
 updateGetCluesState();
