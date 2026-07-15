@@ -123,6 +123,103 @@ h1 {
   margin-bottom: 28px;
 }
 
+/* Photo capture */
+.dropzone {
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease;
+  margin-bottom: 16px;
+}
+.dropzone:hover, .dropzone:focus-visible {
+  border-color: var(--border-accent);
+  background: rgba(255,255,255,0.02);
+  outline: none;
+}
+.dropzone.dragover {
+  border-color: var(--accent);
+  background: rgba(91,140,255,0.06);
+}
+.dropzone-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dropzone-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.dropzone-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.capture-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  margin: 0 auto 14px;
+  border-radius: 12px;
+}
+
+/* Confirm-words grid */
+.word-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.word-row {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 10px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+  position: relative;
+}
+.word-row:hover {
+  border-color: var(--border-accent);
+  background: rgba(255,255,255,0.035);
+  transform: translateY(-1px);
+}
+.word-row.editing {
+  border-color: var(--accent);
+  background: rgba(91,140,255,0.06);
+}
+.word-row.edited::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+.word-row.blank {
+  border-color: rgba(227,103,103,0.4);
+  color: var(--text-muted);
+}
+.word-row input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
 /* Team toggle */
 .team-toggle {
   display: flex;

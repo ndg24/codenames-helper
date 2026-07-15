@@ -13,12 +13,52 @@
     <div class="topbar">
       <div class="brand"><span class="dot"></span>CODENAMES ASSISTANT</div>
       <div class="steps">
-        <div class="step active" id="step-board"><span class="num">1</span>Board</div>
-        <div class="step" id="step-clues"><span class="num">2</span>Clues</div>
+        <div class="step active" id="step-capture"><span class="num">1</span>Capture</div>
+        <div class="step" id="step-confirm"><span class="num">2</span>Confirm</div>
+        <div class="step" id="step-board"><span class="num">3</span>Board</div>
+        <div class="step" id="step-clues"><span class="num">4</span>Clues</div>
       </div>
     </div>
 
-    <div class="card screen active" id="screen-board">
+    <div class="card screen active" id="screen-capture">
+      <div class="meta-label">Board capture</div>
+      <h1>Capture your board</h1>
+      <p class="subtext">Upload, drag in, or paste (Ctrl+V) a photo or screenshot of the board — we'll read the 25 words for you.</p>
+
+      <input type="file" id="photoInput" accept="image/*" hidden>
+      <div class="dropzone" id="dropzone" tabindex="0">
+        <img id="capturePreview" class="capture-preview" hidden>
+        <div id="dropzoneHint" class="dropzone-hint">
+          <span class="dropzone-title">Click to browse, drag a file here, or paste a screenshot</span>
+          <span class="dropzone-sub">JPG, PNG, or WEBP</span>
+        </div>
+      </div>
+
+      <div class="status-line" id="captureStatus"></div>
+
+      <div class="actions">
+        <button class="btn-secondary" id="manualEntryBtn">Enter words manually instead</button>
+        <button class="btn-primary" id="readBoardBtn" disabled>Read board</button>
+      </div>
+    </div>
+
+    <div class="card screen" id="screen-confirm">
+      <div class="meta-label">Board capture</div>
+      <h1>Confirm detected words</h1>
+      <p class="subtext">Tap any word to correct it before continuing.</p>
+
+      <div class="word-grid" id="confirmGrid"></div>
+
+      <div class="hint-row"><span class="swatch-key"><span class="dot" style="background: var(--gold);"></span>edited</span></div>
+      <div class="status-line error" id="confirmWarning"></div>
+
+      <div class="actions">
+        <button class="btn-secondary" id="retakePhotoBtn">Retake photo</button>
+        <button class="btn-primary" id="confirmWordsBtn">Confirm &amp; continue</button>
+      </div>
+    </div>
+
+    <div class="card screen" id="screen-board">
       <div class="meta-label">Board setup</div>
       <h1>Build your board</h1>
       <p class="subtext">Type all 25 words, then tap a dot under each to set its color.</p>

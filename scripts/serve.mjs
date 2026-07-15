@@ -4,11 +4,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFile } from '../server/env.mjs';
 import { refineClues } from '../server/refineClues.mjs';
+import { parseBoard } from '../server/parseBoard.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const port = process.env.PORT || 8080;
 const MAX_REFINE_BODY_BYTES = 50_000;
+// Client-side compression targets ~1568px/JPEG-0.85 before sending, but allow headroom
+// for the base64 inflation (~33%) plus JSON framing.
+const MAX_PARSE_BODY_BYTES = 6_000_000;
 
 loadEnvFile(path.join(root, '.env'));
 
@@ -76,10 +80,58 @@ async function handleRefineClues(req, res) {
   res.end(JSON.stringify(result));
 }
 
+async function handleParseBoard(req, res) {
+  let bodyText;
+  try {
+    bodyText = await readBody(req, MAX_PARSE_BODY_BYTES);
+  } catch {
+    res.writeHead(413, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, reason: 'payload_too_large' }));
+    return;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(bodyText);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, reason: 'invalid_json' }));
+    return;
+  }
+
+  const { imageBase64, mimeType } = payload || {};
+  if (typeof imageBase64 !== 'string' || typeof mimeType !== 'string') {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, reason: 'invalid_shape' }));
+    return;
+  }
+
+  const result = await parseBoard({
+    imageBase64,
+    mimeType,
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    model: process.env.ANTHROPIC_MODEL,
+  });
+
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(result));
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/api/refine-clues') {
     try {
       await handleRefineClues(req, res);
+    } catch (err) {
+      console.error(err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, reason: 'internal_error' }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/parse-board') {
+    try {
+      await handleParseBoard(req, res);
     } catch (err) {
       console.error(err);
       res.writeHead(500, { 'Content-Type': 'application/json' });

@@ -81,10 +81,32 @@ const clueCountBadge = document.getElementById('clueCountBadge');
 const boardStatusList = document.getElementById('boardStatusList');
 const remainingTally = document.getElementById('remainingTally');
 const endgameBanner = document.getElementById('endgameBanner');
-const stepBoard = document.getElementById('step-board');
-const stepClues = document.getElementById('step-clues');
-const screenBoard = document.getElementById('screen-board');
-const screenClues = document.getElementById('screen-clues');
+
+const SCREENS = ['capture', 'confirm', 'board', 'clues'];
+const screenEls = {
+  capture: document.getElementById('screen-capture'),
+  confirm: document.getElementById('screen-confirm'),
+  board: document.getElementById('screen-board'),
+  clues: document.getElementById('screen-clues'),
+};
+const stepEls = {
+  capture: document.getElementById('step-capture'),
+  confirm: document.getElementById('step-confirm'),
+  board: document.getElementById('step-board'),
+  clues: document.getElementById('step-clues'),
+};
+
+const photoInput = document.getElementById('photoInput');
+const dropzone = document.getElementById('dropzone');
+const capturePreview = document.getElementById('capturePreview');
+const dropzoneHint = document.getElementById('dropzoneHint');
+const captureStatus = document.getElementById('captureStatus');
+const manualEntryBtn = document.getElementById('manualEntryBtn');
+const readBoardBtn = document.getElementById('readBoardBtn');
+const confirmGrid = document.getElementById('confirmGrid');
+const confirmWarning = document.getElementById('confirmWarning');
+const retakePhotoBtn = document.getElementById('retakePhotoBtn');
+const confirmWordsBtn = document.getElementById('confirmWordsBtn');
 
 let lastRawResults = [];
 
@@ -98,6 +120,16 @@ const REFINE_ERROR_MESSAGES = {
   invalid_shape: 'Gemini returned an unexpected response — showing offline candidates.',
   no_valid_picks: 'None of Gemini’s picks passed the legality check — showing offline candidates.',
   payload_too_large: 'Request was too large — showing offline candidates.',
+};
+
+const PARSE_ERROR_MESSAGES = {
+  not_configured: 'Photo capture isn’t set up (no ANTHROPIC_API_KEY on the server).',
+  invalid_image: 'That file couldn’t be read as an image.',
+  request_failed: 'The board-reading request failed.',
+  empty_response: 'Got an empty response while reading the board.',
+  invalid_shape: 'Got an unexpected response while reading the board.',
+  invalid_json: 'Got an unreadable response while reading the board.',
+  payload_too_large: 'That image was too large.',
 };
 
 function buildBoardGrid() {
@@ -187,14 +219,187 @@ clearBoardBtn.addEventListener('click', () => resetBoard());
 resetGameBtn.addEventListener('click', () => resetBoard());
 
 function showScreen(name) {
-  screenBoard.classList.toggle('active', name === 'board');
-  screenClues.classList.toggle('active', name === 'clues');
-  stepBoard.classList.toggle('active', name === 'board');
-  stepBoard.classList.toggle('done', name === 'clues');
-  stepClues.classList.toggle('active', name === 'clues');
+  const idx = SCREENS.indexOf(name);
+  SCREENS.forEach((s, i) => {
+    screenEls[s].classList.toggle('active', s === name);
+    stepEls[s].classList.toggle('active', s === name);
+    stepEls[s].classList.toggle('done', i < idx);
+  });
 }
 
 backToBoardBtn.addEventListener('click', () => showScreen('board'));
+
+// --- Photo capture -----------------------------------------------------
+
+const MAX_IMAGE_DIMENSION = 1568; // Anthropic's documented vision sweet spot; also bounds request size/cost.
+
+let capturedImage = null; // { base64, mimeType } — transient, not persisted across reloads
+let pendingWords = [];
+let originalPendingWords = [];
+
+function resetCaptureUI() {
+  capturedImage = null;
+  capturePreview.hidden = true;
+  capturePreview.src = '';
+  dropzoneHint.hidden = false;
+  readBoardBtn.disabled = true;
+  captureStatus.textContent = '';
+  captureStatus.classList.remove('error');
+  photoInput.value = '';
+}
+
+function loadImageFromFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+        const scale = MAX_IMAGE_DIMENSION / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      capturedImage = { base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' };
+      capturePreview.src = dataUrl;
+      capturePreview.hidden = false;
+      dropzoneHint.hidden = true;
+      readBoardBtn.disabled = false;
+      captureStatus.textContent = '';
+      captureStatus.classList.remove('error');
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+photoInput.addEventListener('change', () => {
+  if (photoInput.files[0]) loadImageFromFile(photoInput.files[0]);
+});
+
+dropzone.addEventListener('click', () => photoInput.click());
+dropzone.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    photoInput.click();
+  }
+});
+dropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropzone.classList.add('dragover');
+});
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) loadImageFromFile(e.dataTransfer.files[0]);
+});
+document.addEventListener('paste', (e) => {
+  if (!screenEls.capture.classList.contains('active')) return;
+  const item = [...(e.clipboardData?.items || [])].find((it) => it.type.startsWith('image/'));
+  if (item) loadImageFromFile(item.getAsFile());
+});
+
+async function parseBoardPhoto() {
+  if (!capturedImage) return;
+  readBoardBtn.disabled = true;
+  manualEntryBtn.disabled = true;
+  captureStatus.classList.remove('error');
+  captureStatus.textContent = 'Reading board…';
+  try {
+    const res = await fetch('/api/parse-board', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: capturedImage.base64, mimeType: capturedImage.mimeType }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      pendingWords = data.words.slice();
+      originalPendingWords = data.words.slice();
+      captureStatus.textContent = '';
+      buildConfirmGrid();
+      showScreen('confirm');
+    } else {
+      const reason = PARSE_ERROR_MESSAGES[data.reason] || 'Could not read the board from that photo.';
+      captureStatus.textContent = `${reason} You can retry or enter words manually.`;
+      captureStatus.classList.add('error');
+    }
+  } catch (err) {
+    console.error(err);
+    captureStatus.textContent = 'Could not reach the server. You can retry or enter words manually.';
+    captureStatus.classList.add('error');
+  } finally {
+    readBoardBtn.disabled = !capturedImage;
+    manualEntryBtn.disabled = false;
+  }
+}
+
+readBoardBtn.addEventListener('click', parseBoardPhoto);
+manualEntryBtn.addEventListener('click', () => showScreen('board'));
+
+// --- Confirm words -------------------------------------------------------
+
+function startEditConfirmCell(row, i) {
+  if (row.querySelector('input')) return;
+  row.classList.add('editing');
+  row.textContent = '';
+  const input = document.createElement('input');
+  input.value = pendingWords[i];
+  row.appendChild(input);
+  input.focus();
+  input.select();
+
+  function commit() {
+    const newVal = input.value.trim().toUpperCase();
+    pendingWords[i] = newVal;
+    row.classList.remove('editing');
+    row.classList.toggle('blank', !newVal);
+    row.classList.toggle('edited', newVal !== originalPendingWords[i]);
+    row.textContent = newVal || '—';
+  }
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.blur();
+  });
+}
+
+function buildConfirmGrid() {
+  confirmGrid.innerHTML = '';
+  confirmWarning.textContent = '';
+  pendingWords.forEach((word, i) => {
+    const row = document.createElement('div');
+    row.className = 'word-row';
+    row.tabIndex = 0;
+    if (!word) row.classList.add('blank');
+    row.textContent = word || '—';
+    row.addEventListener('click', () => startEditConfirmCell(row, i));
+    confirmGrid.appendChild(row);
+  });
+}
+
+retakePhotoBtn.addEventListener('click', () => {
+  resetCaptureUI();
+  showScreen('capture');
+});
+
+confirmWordsBtn.addEventListener('click', () => {
+  const missing = pendingWords.filter((w) => !w.trim()).length;
+  if (missing > 0) {
+    confirmWarning.textContent = `Fill in ${missing} missing word${missing === 1 ? '' : 's'} before continuing.`;
+    return;
+  }
+  confirmWarning.textContent = '';
+  state.cells = pendingWords.map((word) => ({ word, color: null, revealed: false }));
+  persistState();
+  buildBoardGrid();
+  updateGetCluesState();
+  showScreen('board');
+});
 
 async function loadWordVectors() {
   if (!wordVectorsPromise) {
@@ -442,4 +647,7 @@ buildBoardGrid();
 updateGetCluesState();
 if (restored) {
   document.querySelectorAll('.team-pill').forEach((b) => b.classList.toggle('selected', b.dataset.team === state.yourTeam));
+  showScreen('board');
+} else {
+  showScreen('capture');
 }
