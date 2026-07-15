@@ -1,2 +1,5 @@
 node_modules/
 .env
+.env.example
+codenames-assistant-plan.md
+confirm-words-mockup.html
