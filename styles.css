@@ -258,6 +258,7 @@ h1 {
   border-top: 1px solid var(--border);
   padding-top: 24px;
 }
+.actions .btn-reset { margin-right: auto; }
 button {
   font-family: inherit;
   font-size: 14px;

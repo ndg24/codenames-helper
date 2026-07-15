@@ -2,11 +2,66 @@ import { rankClues, normalizeWord } from './src/scoring.mjs';
 
 const COLORS = ['blue', 'red', 'neutral', 'assassin'];
 const N_CELLS = 25;
+const STORAGE_KEY = 'codenames-helper:board-state:v1';
 
 const state = {
   cells: Array.from({ length: N_CELLS }, () => ({ word: '', color: null, revealed: false })),
   yourTeam: 'blue',
 };
+
+function persistState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ cells: state.cells, yourTeam: state.yourTeam }));
+  } catch {
+    // localStorage unavailable (private browsing, quota) — persistence is best-effort
+  }
+}
+
+function clearPersistedState() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function loadPersistedState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed.cells) || parsed.cells.length !== N_CELLS) return false;
+    const validColors = new Set([...COLORS, null]);
+    for (const c of parsed.cells) {
+      if (typeof c.word !== 'string' || !validColors.has(c.color) || typeof c.revealed !== 'boolean') return false;
+    }
+    if (parsed.yourTeam !== 'blue' && parsed.yourTeam !== 'red') return false;
+    state.cells = parsed.cells;
+    state.yourTeam = parsed.yourTeam;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasAnyBoardData() {
+  return state.cells.some((c) => c.word.trim() !== '' || c.color !== null);
+}
+
+function resetBoard(opts = {}) {
+  if (!opts.skipConfirm && hasAnyBoardData()) {
+    const ok = window.confirm('Reset the board? This clears all words, colors, and turn progress.');
+    if (!ok) return;
+  }
+  state.cells = Array.from({ length: N_CELLS }, () => ({ word: '', color: null, revealed: false }));
+  clearPersistedState();
+  buildBoardGrid();
+  updateGetCluesState();
+  endgameBanner.style.display = 'none';
+  clueList.innerHTML = '';
+  lastRawResults = [];
+  showScreen('board');
+}
 
 let wordVectorsPromise = null;
 let extractorPromise = null;
@@ -15,6 +70,7 @@ const boardGrid = document.getElementById('boardGrid');
 const boardStatus = document.getElementById('boardStatus');
 const getCluesBtn = document.getElementById('getCluesBtn');
 const clearBoardBtn = document.getElementById('clearBoardBtn');
+const resetGameBtn = document.getElementById('resetGameBtn');
 const backToBoardBtn = document.getElementById('backToBoardBtn');
 const regenerateBtn = document.getElementById('regenerateBtn');
 const refineBtn = document.getElementById('refineBtn');
@@ -58,6 +114,7 @@ function buildBoardGrid() {
     input.addEventListener('input', () => {
       state.cells[i].word = input.value;
       updateGetCluesState();
+      persistState();
     });
 
     const swatches = document.createElement('div');
@@ -71,6 +128,7 @@ function buildBoardGrid() {
         state.cells[i].color = state.cells[i].color === color ? null : color;
         renderCellColor(cellEl, state.cells[i].color);
         updateGetCluesState();
+        persistState();
       });
       swatches.appendChild(btn);
     });
@@ -81,6 +139,7 @@ function buildBoardGrid() {
     revealBtn.addEventListener('click', () => {
       state.cells[i].revealed = !state.cells[i].revealed;
       renderCellRevealed(cellEl, state.cells[i].revealed);
+      persistState();
     });
 
     cellEl.appendChild(input);
@@ -120,14 +179,12 @@ document.querySelectorAll('.team-pill').forEach((btn) => {
     state.yourTeam = btn.dataset.team;
     document.querySelectorAll('.team-pill').forEach((b) => b.classList.remove('selected'));
     btn.classList.add('selected');
+    persistState();
   });
 });
 
-clearBoardBtn.addEventListener('click', () => {
-  state.cells = Array.from({ length: N_CELLS }, () => ({ word: '', color: null, revealed: false }));
-  buildBoardGrid();
-  updateGetCluesState();
-});
+clearBoardBtn.addEventListener('click', () => resetBoard());
+resetGameBtn.addEventListener('click', () => resetBoard());
 
 function showScreen(name) {
   screenBoard.classList.toggle('active', name === 'board');
@@ -204,6 +261,7 @@ function renderBoardStatus() {
       state.cells[i].revealed = !state.cells[i].revealed;
       const boardCellEl = boardGrid.querySelector(`.board-cell[data-index="${i}"]`);
       if (boardCellEl) renderCellRevealed(boardCellEl, state.cells[i].revealed);
+      persistState();
       await getClues();
       statusUpdatePending = false;
     });
@@ -379,5 +437,9 @@ getCluesBtn.addEventListener('click', getClues);
 regenerateBtn.addEventListener('click', getClues);
 refineBtn.addEventListener('click', refineWithGemini);
 
+const restored = loadPersistedState();
 buildBoardGrid();
 updateGetCluesState();
+if (restored) {
+  document.querySelectorAll('.team-pill').forEach((b) => b.classList.toggle('selected', b.dataset.team === state.yourTeam));
+}
