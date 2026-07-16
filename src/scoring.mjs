@@ -126,3 +126,22 @@ export function rankClues(game, wordVectors, boardEmbeddings, opts = {}) {
   results.sort((a, b) => b.score - a.score);
   return results.slice(0, topN);
 }
+
+/**
+ * Reverse of rankClues: given the clue a guesser was told, rank the board's own words
+ * by similarity to it. No color/danger weighting and no legality filter — a real guesser
+ * doesn't know colors, and the candidates here are the board words themselves, not a
+ * separate clue vocabulary.
+ * @param {number[]} clueVector  embedding of the clue word the guesser was given
+ * @param {{word:string, revealed?: boolean}[]} board
+ * @param {{vector:number[]}[]} boardEmbeddings  same order/length as board
+ * @param {{topN?: number}} opts
+ */
+export function rankGuesses(clueVector, board, boardEmbeddings, opts = {}) {
+  const topN = opts.topN ?? 25;
+  return board
+    .map((cell, i) => ({ word: cell.word, sim: cosineSim(clueVector, boardEmbeddings[i].vector) }))
+    .filter((r, i) => !board[i].revealed && r.word.trim() !== '')
+    .sort((a, b) => b.sim - a.sim)
+    .slice(0, topN);
+}

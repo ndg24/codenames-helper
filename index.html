@@ -17,6 +17,7 @@
         <div class="step" id="step-confirm"><span class="num">2</span>Confirm</div>
         <div class="step" id="step-board"><span class="num">3</span>Board</div>
         <div class="step" id="step-clues"><span class="num">4</span>Clues</div>
+        <div class="step" id="step-guess"><span class="num">3</span>Guess</div>
       </div>
     </div>
 
@@ -24,6 +25,11 @@
       <div class="meta-label">Board capture</div>
       <h1>Capture your board</h1>
       <p class="subtext">Upload, drag in, or paste (Ctrl+V) a photo or screenshot of the board — we'll read the 25 words for you.</p>
+
+      <div class="mode-toggle">
+        <button class="mode-pill selected" data-mode="spymaster">Spymaster</button>
+        <button class="mode-pill" data-mode="guesser">Guesser</button>
+      </div>
 
       <input type="file" id="photoInput" accept="image/*" hidden>
       <div class="dropzone" id="dropzone" tabindex="0">
@@ -85,6 +91,27 @@
       <div class="actions">
         <button class="btn-secondary" id="clearBoardBtn">Clear board</button>
         <button class="btn-primary" id="getCluesBtn" disabled>Get clues</button>
+      </div>
+    </div>
+
+    <div class="card screen" id="screen-guess">
+      <div class="meta-label">Guesser mode</div>
+      <h1>Rank your guesses</h1>
+      <p class="subtext">Type all 25 words — colors stay hidden, since a real guesser doesn't know them. Enter the clue you were given, then tap words as they're guessed.</p>
+
+      <div class="board-grid" id="guessGrid"></div>
+
+      <div class="clue-input-row">
+        <input type="text" id="clueWordInput" placeholder="Clue word">
+        <input type="number" id="clueCountInput" min="1" max="4" value="2">
+        <button class="btn-primary" id="rankGuessesBtn" disabled>Rank guesses</button>
+      </div>
+
+      <div class="status-line" id="guessStatus"></div>
+      <div class="guess-list" id="guessList"></div>
+
+      <div class="actions">
+        <button class="btn-secondary" id="clearGuessBoardBtn">Clear board</button>
       </div>
     </div>
 

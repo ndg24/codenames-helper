@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeWord, cosineSim, rankClues } from '../src/scoring.mjs';
+import { normalizeWord, cosineSim, rankClues, rankGuesses } from '../src/scoring.mjs';
 
 function unit(v) {
   const mag = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
@@ -172,4 +172,44 @@ test('rankClues sorts by score descending and respects topN', () => {
   assert.equal(results.length, 2);
   assert.equal(results[0].clue, 'best');
   assert.equal(results[1].clue, 'mid');
+});
+
+test('rankGuesses ranks board words by descending similarity to the clue vector', () => {
+  const clueVector = [1, 0, 0];
+  const board = [
+    { word: 'far' },
+    { word: 'close' },
+    { word: 'mid' },
+  ];
+  const boardEmbeddings = [
+    { vector: unit([1, 1, 1]) },
+    { vector: [1, 0, 0] },
+    { vector: unit([1, 0.5, 0]) },
+  ];
+  const results = rankGuesses(clueVector, board, boardEmbeddings);
+  assert.deepEqual(results.map((r) => r.word), ['close', 'mid', 'far']);
+});
+
+test('rankGuesses excludes revealed and blank words', () => {
+  const clueVector = [1, 0, 0];
+  const board = [
+    { word: 'alpha', revealed: true },
+    { word: '' },
+    { word: 'beta', revealed: false },
+  ];
+  const boardEmbeddings = [
+    { vector: [1, 0, 0] },
+    { vector: [1, 0, 0] },
+    { vector: [1, 0, 0] },
+  ];
+  const results = rankGuesses(clueVector, board, boardEmbeddings);
+  assert.deepEqual(results.map((r) => r.word), ['beta']);
+});
+
+test('rankGuesses respects topN', () => {
+  const clueVector = [1, 0, 0];
+  const board = [{ word: 'a' }, { word: 'b' }, { word: 'c' }];
+  const boardEmbeddings = [{ vector: [1, 0, 0] }, { vector: [1, 0, 0] }, { vector: [1, 0, 0] }];
+  const results = rankGuesses(clueVector, board, boardEmbeddings, { topN: 2 });
+  assert.equal(results.length, 2);
 });

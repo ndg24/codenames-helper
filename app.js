@@ -1,4 +1,4 @@
-import { rankClues, normalizeWord } from './src/scoring.mjs';
+import { rankClues, rankGuesses, normalizeWord } from './src/scoring.mjs';
 
 const COLORS = ['blue', 'red', 'neutral', 'assassin'];
 const N_CELLS = 25;
@@ -7,11 +7,12 @@ const STORAGE_KEY = 'codenames-helper:board-state:v1';
 const state = {
   cells: Array.from({ length: N_CELLS }, () => ({ word: '', color: null, revealed: false })),
   yourTeam: 'blue',
+  mode: 'spymaster', // 'spymaster' | 'guesser' — guesser mode never reads .color, mirroring what a real guesser knows
 };
 
 function persistState() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ cells: state.cells, yourTeam: state.yourTeam }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ cells: state.cells, yourTeam: state.yourTeam, mode: state.mode }));
   } catch {
     // localStorage unavailable (private browsing, quota) — persistence is best-effort
   }
@@ -38,6 +39,7 @@ function loadPersistedState() {
     if (parsed.yourTeam !== 'blue' && parsed.yourTeam !== 'red') return false;
     state.cells = parsed.cells;
     state.yourTeam = parsed.yourTeam;
+    state.mode = parsed.mode === 'guesser' ? 'guesser' : 'spymaster';
     return true;
   } catch {
     return false;
@@ -55,12 +57,16 @@ function resetBoard(opts = {}) {
   }
   state.cells = Array.from({ length: N_CELLS }, () => ({ word: '', color: null, revealed: false }));
   clearPersistedState();
-  buildBoardGrid();
+  buildAllGrids();
   updateGetCluesState();
+  updateRankGuessesState();
   endgameBanner.style.display = 'none';
   clueList.innerHTML = '';
   lastRawResults = [];
-  showScreen('board');
+  lastGuessContext = null;
+  guessList.innerHTML = '';
+  guessStatus.textContent = '';
+  showScreen(state.mode === 'guesser' ? 'guess' : 'board');
 }
 
 let wordVectorsPromise = null;
@@ -82,19 +88,26 @@ const boardStatusList = document.getElementById('boardStatusList');
 const remainingTally = document.getElementById('remainingTally');
 const endgameBanner = document.getElementById('endgameBanner');
 
-const SCREENS = ['capture', 'confirm', 'board', 'clues'];
+// All screens toggle .active the same way regardless of mode; the breadcrumb (stepEls)
+// uses a mode-specific subset/order, since Guesser mode replaces board+clues with one step.
+const ALL_SCREENS = ['capture', 'confirm', 'board', 'clues', 'guess'];
 const screenEls = {
   capture: document.getElementById('screen-capture'),
   confirm: document.getElementById('screen-confirm'),
   board: document.getElementById('screen-board'),
   clues: document.getElementById('screen-clues'),
+  guess: document.getElementById('screen-guess'),
 };
 const stepEls = {
   capture: document.getElementById('step-capture'),
   confirm: document.getElementById('step-confirm'),
   board: document.getElementById('step-board'),
   clues: document.getElementById('step-clues'),
+  guess: document.getElementById('step-guess'),
 };
+function stepOrderForMode() {
+  return state.mode === 'guesser' ? ['capture', 'confirm', 'guess'] : ['capture', 'confirm', 'board', 'clues'];
+}
 
 const photoInput = document.getElementById('photoInput');
 const dropzone = document.getElementById('dropzone');
@@ -107,8 +120,16 @@ const confirmGrid = document.getElementById('confirmGrid');
 const confirmWarning = document.getElementById('confirmWarning');
 const retakePhotoBtn = document.getElementById('retakePhotoBtn');
 const confirmWordsBtn = document.getElementById('confirmWordsBtn');
+const guessGrid = document.getElementById('guessGrid');
+const clueWordInput = document.getElementById('clueWordInput');
+const clueCountInput = document.getElementById('clueCountInput');
+const rankGuessesBtn = document.getElementById('rankGuessesBtn');
+const guessStatus = document.getElementById('guessStatus');
+const guessList = document.getElementById('guessList');
+const clearGuessBoardBtn = document.getElementById('clearGuessBoardBtn');
 
 let lastRawResults = [];
+let lastGuessContext = null; // { clueVector, boardEmbeddings } — cached so a reveal-toggle can re-filter without re-embedding
 
 const REFINE_ERROR_MESSAGES = {
   not_configured: 'AI clue generation isn’t set up (no GEMINI_API_KEY on the server) — showing offline candidates.',
@@ -132,8 +153,8 @@ const PARSE_ERROR_MESSAGES = {
   payload_too_large: 'That image was too large.',
 };
 
-function buildBoardGrid() {
-  boardGrid.innerHTML = '';
+function buildWordGrid(container, { includeColors }) {
+  container.innerHTML = '';
   state.cells.forEach((cell, i) => {
     const cellEl = document.createElement('div');
     cellEl.className = 'board-cell';
@@ -146,24 +167,29 @@ function buildBoardGrid() {
     input.addEventListener('input', () => {
       state.cells[i].word = input.value;
       updateGetCluesState();
+      updateRankGuessesState();
       persistState();
     });
+    cellEl.appendChild(input);
 
-    const swatches = document.createElement('div');
-    swatches.className = 'swatches';
-    COLORS.forEach((color) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = `swatch ${color}`;
-      btn.title = color;
-      btn.addEventListener('click', () => {
-        state.cells[i].color = state.cells[i].color === color ? null : color;
-        renderCellColor(cellEl, state.cells[i].color);
-        updateGetCluesState();
-        persistState();
+    if (includeColors) {
+      const swatches = document.createElement('div');
+      swatches.className = 'swatches';
+      COLORS.forEach((color) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `swatch ${color}`;
+        btn.title = color;
+        btn.addEventListener('click', () => {
+          state.cells[i].color = state.cells[i].color === color ? null : color;
+          renderCellColor(cellEl, state.cells[i].color);
+          updateGetCluesState();
+          persistState();
+        });
+        swatches.appendChild(btn);
       });
-      swatches.appendChild(btn);
-    });
+      cellEl.appendChild(swatches);
+    }
 
     const revealBtn = document.createElement('button');
     revealBtn.type = 'button';
@@ -172,15 +198,27 @@ function buildBoardGrid() {
       state.cells[i].revealed = !state.cells[i].revealed;
       renderCellRevealed(cellEl, state.cells[i].revealed);
       persistState();
+      if (!includeColors) refreshGuessListFromCache();
     });
-
-    cellEl.appendChild(input);
-    cellEl.appendChild(swatches);
     cellEl.appendChild(revealBtn);
-    boardGrid.appendChild(cellEl);
-    renderCellColor(cellEl, cell.color);
+
+    container.appendChild(cellEl);
+    if (includeColors) renderCellColor(cellEl, cell.color);
     renderCellRevealed(cellEl, cell.revealed);
   });
+}
+
+function buildBoardGrid() {
+  buildWordGrid(boardGrid, { includeColors: true });
+}
+
+function buildGuesserGrid() {
+  buildWordGrid(guessGrid, { includeColors: false });
+}
+
+function buildAllGrids() {
+  buildBoardGrid();
+  buildGuesserGrid();
 }
 
 function renderCellColor(cellEl, color) {
@@ -206,6 +244,11 @@ function updateGetCluesState() {
   }
 }
 
+function updateRankGuessesState() {
+  const complete = state.cells.every((c) => c.word.trim() !== '');
+  rankGuessesBtn.disabled = !complete;
+}
+
 document.querySelectorAll('.team-pill').forEach((btn) => {
   btn.addEventListener('click', () => {
     state.yourTeam = btn.dataset.team;
@@ -215,13 +258,28 @@ document.querySelectorAll('.team-pill').forEach((btn) => {
   });
 });
 
+function updateModeUI() {
+  document.querySelector('.steps').classList.toggle('mode-guesser', state.mode === 'guesser');
+  document.querySelectorAll('.mode-pill').forEach((b) => b.classList.toggle('selected', b.dataset.mode === state.mode));
+}
+
+document.querySelectorAll('.mode-pill').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    state.mode = btn.dataset.mode;
+    persistState();
+    updateModeUI();
+  });
+});
+
 clearBoardBtn.addEventListener('click', () => resetBoard());
 resetGameBtn.addEventListener('click', () => resetBoard());
+clearGuessBoardBtn.addEventListener('click', () => resetBoard());
 
 function showScreen(name) {
-  const idx = SCREENS.indexOf(name);
-  SCREENS.forEach((s, i) => {
-    screenEls[s].classList.toggle('active', s === name);
+  ALL_SCREENS.forEach((s) => screenEls[s].classList.toggle('active', s === name));
+  const order = stepOrderForMode();
+  const idx = order.indexOf(name);
+  order.forEach((s, i) => {
     stepEls[s].classList.toggle('active', s === name);
     stepEls[s].classList.toggle('done', i < idx);
   });
@@ -342,7 +400,7 @@ async function parseBoardPhoto() {
 }
 
 readBoardBtn.addEventListener('click', parseBoardPhoto);
-manualEntryBtn.addEventListener('click', () => showScreen('board'));
+manualEntryBtn.addEventListener('click', () => showScreen(state.mode === 'guesser' ? 'guess' : 'board'));
 
 // --- Confirm words -------------------------------------------------------
 
@@ -400,9 +458,10 @@ confirmWordsBtn.addEventListener('click', () => {
   confirmWarning.textContent = '';
   state.cells = pendingWords.map((word) => ({ word, color: null, revealed: false }));
   persistState();
-  buildBoardGrid();
+  buildAllGrids();
   updateGetCluesState();
-  showScreen('board');
+  updateRankGuessesState();
+  showScreen(state.mode === 'guesser' ? 'guess' : 'board');
 });
 
 async function loadWordVectors() {
@@ -426,11 +485,16 @@ async function loadExtractor() {
   return extractorPromise;
 }
 
+async function embedText(extractor, text) {
+  const output = await extractor(text, { pooling: 'mean', normalize: true });
+  return Array.from(output.data);
+}
+
 async function embedBoardWords(extractor) {
   const embeddings = [];
   for (const cell of state.cells) {
-    const output = await extractor(cell.word, { pooling: 'mean', normalize: true });
-    embeddings.push({ word: cell.word, norm: normalizeWord(cell.word), vector: Array.from(output.data) });
+    const vector = await embedText(extractor, cell.word);
+    embeddings.push({ word: cell.word, norm: normalizeWord(cell.word), vector });
   }
   return embeddings;
 }
@@ -646,12 +710,75 @@ getCluesBtn.addEventListener('click', getClues);
 regenerateBtn.addEventListener('click', getClues);
 refineBtn.addEventListener('click', refineWithGemini);
 
+// --- Guesser mode --------------------------------------------------------
+
+function renderGuesses(results, count) {
+  guessList.innerHTML = '';
+  if (results.length === 0) {
+    guessList.innerHTML = '<p class="subtext">No unrevealed words left to guess.</p>';
+    return;
+  }
+  results.forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = i < count ? 'guess-row top-pick' : 'guess-row';
+    const word = document.createElement('span');
+    word.className = 'guess-word';
+    word.textContent = r.word.toUpperCase();
+    const sim = document.createElement('span');
+    sim.className = 'guess-sim';
+    sim.textContent = r.sim.toFixed(2);
+    row.appendChild(word);
+    row.appendChild(sim);
+    guessList.appendChild(row);
+  });
+}
+
+function refreshGuessListFromCache() {
+  if (!lastGuessContext) return;
+  const results = rankGuesses(lastGuessContext.clueVector, state.cells, lastGuessContext.boardEmbeddings, { topN: 25 });
+  renderGuesses(results, Number(clueCountInput.value) || 2);
+}
+
+async function rankGuessesForClue() {
+  const clueWord = clueWordInput.value.trim();
+  guessStatus.classList.remove('error');
+  if (!clueWord) {
+    guessStatus.textContent = 'Type the clue word you were given first.';
+    guessStatus.classList.add('error');
+    return;
+  }
+  rankGuessesBtn.disabled = true;
+  guessStatus.textContent = 'Loading model (first run only)…';
+  try {
+    const extractor = await loadExtractor();
+    guessStatus.textContent = 'Embedding…';
+    const [clueVector, boardEmbeddings] = await Promise.all([
+      embedText(extractor, clueWord),
+      embedBoardWords(extractor),
+    ]);
+    lastGuessContext = { clueVector, boardEmbeddings };
+    guessStatus.textContent = '';
+    const results = rankGuesses(clueVector, state.cells, boardEmbeddings, { topN: 25 });
+    renderGuesses(results, Number(clueCountInput.value) || 2);
+  } catch (err) {
+    console.error(err);
+    guessStatus.textContent = `Error: ${err.message}`;
+    guessStatus.classList.add('error');
+  } finally {
+    updateRankGuessesState();
+  }
+}
+
+rankGuessesBtn.addEventListener('click', rankGuessesForClue);
+
 const restored = loadPersistedState();
-buildBoardGrid();
+buildAllGrids();
 updateGetCluesState();
+updateRankGuessesState();
+updateModeUI();
 if (restored) {
   document.querySelectorAll('.team-pill').forEach((b) => b.classList.toggle('selected', b.dataset.team === state.yourTeam));
-  showScreen('board');
+  showScreen(state.mode === 'guesser' ? 'guess' : 'board');
 } else {
   showScreen('capture');
 }
