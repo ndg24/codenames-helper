@@ -203,6 +203,16 @@ h1 {
   border-radius: 50%;
   background: var(--gold);
 }
+.word-row.corrected::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 .word-row.blank {
   border-color: rgba(227,103,103,0.4);
   color: var(--text-muted);

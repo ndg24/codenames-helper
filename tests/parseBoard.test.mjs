@@ -72,6 +72,26 @@ test('parseBoard: invalid_shape when tool input.words is not an array', async ()
   assert.equal(result.reason, 'invalid_shape');
 });
 
+test('parseBoard: no bank means no correction, all words pass through unflagged', async () => {
+  const fetchImpl = async () => anthropicResponse(FULL_25);
+  const result = await parseBoard({ imageBase64: 'abc', mimeType: 'image/jpeg', apiKey: 'key', fetchImpl });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.words, FULL_25);
+  assert.deepEqual(result.corrected, FULL_25.map(() => false));
+});
+
+test('parseBoard: snaps a misread word against the provided bank and flags it', async () => {
+  const words = FULL_25.slice();
+  words[0] = 'OCEAM'; // one letter off from bank's "Ocean"
+  const fetchImpl = async () => anthropicResponse(words);
+  const bank = ['Ocean', 'Africa', 'Agent'];
+  const result = await parseBoard({ imageBase64: 'abc', mimeType: 'image/jpeg', apiKey: 'key', fetchImpl, bank });
+  assert.equal(result.ok, true);
+  assert.equal(result.words[0], 'OCEAN');
+  assert.equal(result.corrected[0], true);
+  assert.equal(result.corrected[1], false);
+});
+
 test('parseBoard: retries once on 5xx then succeeds', async () => {
   let calls = 0;
   const fetchImpl = async () => {

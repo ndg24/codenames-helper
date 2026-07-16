@@ -14,6 +14,8 @@ Coming up with a good Codenames clue means balancing two things at once: how man
 - **Deterministic legality filter** — any candidate that exactly matches, contains, or is contained in a board word is excluded outright, enforcing Codenames' clue-legality rule without relying on the model to remember it.
 - **Turn tracking** — tap a word on the clue screen (or its reveal toggle on the board) once it's guessed; revealed cards drop out of coverage/risk scoring and clues recompute automatically. A remaining-word tally per color and an endgame banner (assassin hit / team fully cleared) track game state without a page reload.
 - **Optional Gemini generation pass** — "Ask Gemini for clues" sends the full board (your words, opponent's, neutral, and the assassin) to Gemini (free tier) and lets it invent up to 5 clues from its own vocabulary and reasoning, rather than re-ranking the Stage 1 shortlist — this is what catches puns, categories, and cultural connections that MiniLM embeddings miss. Fully optional: the offline embedding results are already usable on their own, and any failure (no API key configured, request error, malformed response, all picks failing the legality check) falls back to the Stage 1 list with an inline message rather than blocking the UI.
+- **Photo/screenshot board capture** — upload, drag-drop, or paste a photo of the physical board (or a screenshot); Claude's vision reads the 25 words via forced tool-use output and hands back a checklist to confirm/correct before continuing. Colors are never read from the photo — that stays on the existing manual dot-tap UI (see Architecture). Falls back cleanly to manual entry on any failure (no API key configured, unreadable image, request error).
+- **Wordbank-assisted OCR correction** — before the confirm screen renders, each vision-read word is compared against the ~1,200-word bank by edit distance; if exactly one bank entry is closest within a small, length-scaled distance threshold, the word is snapped to it and flagged with a small blue dot (editing that cell afterward clears the flag). A tie between two equally-close bank words, or no match within threshold, leaves Claude's raw read untouched.
 
 ## Architecture & Design Decisions
 
@@ -24,6 +26,7 @@ Coming up with a good Codenames clue means balancing two things at once: how man
 - **Simple, auditable scoring over a black-box ranker** — the score is a plain weighted difference (own-word coverage minus danger similarity) instead of a trained ranking model, so the risk note shown for every clue ("closest risk: X (color, sim 0.XX)") is a direct, explainable readout of the same math that produced the ranking.
 - **Gemini over Claude for Stage 2** — the plan originally called for Claude, but Gemini's free tier is a better fit for a low-volume personal tool: no per-call cost, and its `responseSchema` support lets the target-word enum constraint live directly in the API contract rather than in prompt text alone.
 - **Generation guardrails, defense in depth** — API key stays server-side only (`.env`, never sent to the browser); the request body is capped to 50KB to bound cost; a 20s timeout plus single retry on 5xx (not on 4xx, which won't fix itself); the model's response is schema-validated, every clue is re-checked against the same legality filter, single-word format is enforced, and any target word it didn't actually offer (or that isn't currently one of your team's remaining words) is dropped — on any failure, the endpoint returns `{ok:false, reason}` (never a 500 for expected failure modes) so the client falls back to the Stage 1 list instead of breaking the flow.
+- **Snap-correct OCR misreads only when unambiguous** — `src/ocrCorrect.mjs` compares each vision-read word against the wordbank by Levenshtein distance and only auto-corrects when exactly one bank entry is closest within threshold. A silent correction to the wrong word is a worse failure than an uncorrected typo the user can still see and fix on the confirm screen, so a tie between equally-close candidates is left alone rather than resolved by guessing.
 
 ## Tech Stack
 
@@ -73,7 +76,7 @@ npm run serve            # serves the app at http://localhost:8080
 
 Two tiers:
 
-- **Unit tests** (`npm test`) — pure-math tests against `src/scoring.mjs` using `node:test`: legality filtering, danger-weighting order (assassin > opponent > neutral), best-count selection (minimum 2 words, never falls back to a single-word clue), and ranking/sorting. Also covers `server/refineClues.mjs`'s guardrails (missing API key, not enough own words remaining, illegal/hallucinated-target/multi-word picks dropped, target-count capping, retry-on-5xx-not-4xx, malformed JSON) with a mocked `fetch` — no real Gemini calls or network access needed. Fast, no network, no model weights involved.
+- **Unit tests** (`npm test`) — pure-math tests against `src/scoring.mjs` using `node:test`: legality filtering, danger-weighting order (assassin > opponent > neutral), best-count selection (minimum 2 words, never falls back to a single-word clue), and ranking/sorting. Also covers `server/refineClues.mjs`'s guardrails (missing API key, not enough own words remaining, illegal/hallucinated-target/multi-word picks dropped, target-count capping, retry-on-5xx-not-4xx, malformed JSON) and `server/parseBoard.mjs`'s vision-call handling (retry/error paths, word normalization, OCR-correction wiring) with a mocked `fetch` — no real Gemini/Anthropic calls or network access needed. `src/ocrCorrect.mjs` has its own tests for the correction/ambiguity logic in isolation. Fast, no network, no model weights involved.
 - **E2E smoke test** (`npm run test:e2e`) — Playwright drives a real browser against a running `npm run serve` instance: fills a 25-word board, clicks "Get clues," waits for the model to load and results to render, checks the console for errors, and confirms board state survives navigating back. Requires network access (fetches the model from the CDN on first run) and a one-time `npx playwright install chromium`.
 
 Run both before every deploy:
@@ -93,4 +96,5 @@ The frontend (`index.html`, `app.js`, `styles.css`, `data/word-vectors.json`) is
 
 ## Roadmap
 
-- Photo/screenshot board capture via Claude vision, replacing manual entry as the default input path.
+- E2E test coverage for the photo-capture flow (capture → confirm → board), alongside the existing manual-entry smoke test.
+- Deployment config (Vercel/Netlify) for the `/api/parse-board` and `/api/refine-clues` routes.

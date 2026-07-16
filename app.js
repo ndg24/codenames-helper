@@ -236,6 +236,7 @@ const MAX_IMAGE_DIMENSION = 1568; // Anthropic's documented vision sweet spot; a
 let capturedImage = null; // { base64, mimeType } — transient, not persisted across reloads
 let pendingWords = [];
 let originalPendingWords = [];
+let autoCorrectedWords = []; // per-cell: snapped to a wordbank match by server-side OCR correction
 
 function resetCaptureUI() {
   capturedImage = null;
@@ -321,6 +322,7 @@ async function parseBoardPhoto() {
     if (data.ok) {
       pendingWords = data.words.slice();
       originalPendingWords = data.words.slice();
+      autoCorrectedWords = Array.isArray(data.corrected) ? data.corrected.slice() : pendingWords.map(() => false);
       captureStatus.textContent = '';
       buildConfirmGrid();
       showScreen('confirm');
@@ -357,7 +359,8 @@ function startEditConfirmCell(row, i) {
   function commit() {
     const newVal = input.value.trim().toUpperCase();
     pendingWords[i] = newVal;
-    row.classList.remove('editing');
+    autoCorrectedWords[i] = false;
+    row.classList.remove('editing', 'corrected');
     row.classList.toggle('blank', !newVal);
     row.classList.toggle('edited', newVal !== originalPendingWords[i]);
     row.textContent = newVal || '—';
@@ -376,6 +379,7 @@ function buildConfirmGrid() {
     row.className = 'word-row';
     row.tabIndex = 0;
     if (!word) row.classList.add('blank');
+    if (autoCorrectedWords[i]) row.classList.add('corrected');
     row.textContent = word || '—';
     row.addEventListener('click', () => startEditConfirmCell(row, i));
     confirmGrid.appendChild(row);

@@ -3,6 +3,12 @@
 // prose parsing. Colors are intentionally NOT read here — color misreads (glare, lighting,
 // edition variance) are a much worse failure mode than a word typo, so color-tagging stays
 // on the existing manual dot-tap UI. Server-only module — the API key never reaches the browser.
+//
+// Each word is then run through correctWords() against the wordbank: an unambiguous close
+// match gets silently snapped (and flagged via `corrected` for the confirm-screen UI), while
+// an ambiguous or distant one is left as Claude's raw read — see ocrCorrect.mjs.
+
+import { correctWords } from '../src/ocrCorrect.mjs';
 
 const DEFAULT_MODEL = 'claude-sonnet-5';
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -100,7 +106,8 @@ function normalizeWords(rawWords) {
  * @param {string} [params.model]
  * @param {number} [params.timeoutMs]
  * @param {typeof fetch} [params.fetchImpl]
- * @returns {Promise<{ok:true, words: string[]} | {ok:false, reason:string, detail?:string}>}
+ * @param {string[]} [params.bank] - wordbank entries to snap-correct OCR misreads against
+ * @returns {Promise<{ok:true, words: string[], corrected: boolean[]} | {ok:false, reason:string, detail?:string}>}
  */
 export async function parseBoard({
   imageBase64,
@@ -109,6 +116,7 @@ export async function parseBoard({
   model = DEFAULT_MODEL,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetchImpl = fetch,
+  bank = [],
 }) {
   if (!apiKey) return { ok: false, reason: 'not_configured' };
   if (typeof imageBase64 !== 'string' || !imageBase64) return { ok: false, reason: 'invalid_image' };
@@ -130,5 +138,6 @@ export async function parseBoard({
   const rawWords = toolUse.input?.words;
   if (!Array.isArray(rawWords)) return { ok: false, reason: 'invalid_shape' };
 
-  return { ok: true, words: normalizeWords(rawWords) };
+  const { words, corrected } = correctWords(normalizeWords(rawWords), bank);
+  return { ok: true, words, corrected };
 }

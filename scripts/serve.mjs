@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFile } from '../server/env.mjs';
@@ -15,6 +16,18 @@ const MAX_REFINE_BODY_BYTES = 50_000;
 const MAX_PARSE_BODY_BYTES = 6_000_000;
 
 loadEnvFile(path.join(root, '.env'));
+
+// Loaded once at startup (not per-request) so /api/parse-board can snap-correct OCR
+// misreads against it without re-reading the file on every photo submitted.
+let wordbank = [];
+try {
+  wordbank = readFileSync(path.join(root, 'wordbank.txt'), 'utf8')
+    .split('\n')
+    .map((w) => w.trim())
+    .filter(Boolean);
+} catch {
+  wordbank = [];
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -111,6 +124,7 @@ async function handleParseBoard(req, res) {
     mimeType,
     apiKey: process.env.ANTHROPIC_API_KEY,
     model: process.env.ANTHROPIC_MODEL,
+    bank: wordbank,
   });
 
   res.writeHead(200, { 'Content-Type': 'application/json' });
